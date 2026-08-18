@@ -67,17 +67,40 @@ impl Render for ImageScaler {
                 .gap_3()
                 .child(
                     div()
+                        .id("select-image-button")
                         .size(px(58.))
                         .rounded_full()
                         .bg(rgb(0x222228))
                         .border_1()
                         .border_color(rgb(0x34343b))
+                        .cursor_pointer()
+                        .hover(|style| style.bg(rgb(0x2b3028)).border_color(rgb(0xa6ff6f)))
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_size(px(25.))
                         .text_color(rgb(0xa6ff6f))
-                        .child("＋"),
+                        .child("＋")
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            let receiver = cx.prompt_for_paths(PathPromptOptions {
+                                files: true,
+                                directories: false,
+                                multiple: false,
+                                prompt: Some("Выбрать изображение".into()),
+                            });
+                            cx.spawn(async move |this, cx| {
+                                if let Ok(Ok(Some(paths))) = receiver.await
+                                    && let Some(path) =
+                                        paths.into_iter().find(|path| is_image(path))
+                                {
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.image_path = Some(path);
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                            .detach();
+                        })),
                 )
                 .child(
                     div()
@@ -175,28 +198,6 @@ impl Render for ImageScaler {
                     .flex()
                     .flex_col()
                     .gap_4()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(18.))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .child("Super Puper Scaler"),
-                            )
-                            .child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(rgb(0x202025))
-                                    .text_size(px(10.))
-                                    .text_color(rgb(0x8b8b95))
-                                    .child("LOCAL · GPU"),
-                            ),
-                    )
                     .child(
                         div()
                             .id("image-drop-area")
