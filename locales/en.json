@@ -1,0 +1,30 @@
+{
+  "settings": "Settings",
+  "settings_hint": "Prepare an image for upscaling",
+  "upscale_model": "UPSCALING MODEL",
+  "scale": "SCALE",
+  "save_to": "SAVE TO",
+  "next_to_original": "Next to original",
+  "change": "Change",
+  "choose_folder": "Choose folder",
+  "sidebar_right": "Sidebar on the right",
+  "sidebar_right_hint": "Moves the sidebar to the right",
+  "start_upscale": "Start upscaling  →",
+  "add_image_first": "Add an image first",
+  "choose_image": "Choose image",
+  "drop_image": "Drop an image here",
+  "supported_images": "PNG, JPG or WEBP · up to 50 MB",
+  "model_photo": "Best choice for photos",
+  "model_anime": "Anime and illustrations",
+  "model_details": "Details and textures"
+  ,"output_format": "OUTPUT FORMAT"
+  ,"format_original": "Same"
+  ,"preserve_metadata": "Preserve metadata"
+  ,"preserve_metadata_hint": "Keep EXIF and image information"
+  ,"denoise_strength": "DENOISE STRENGTH"
+  ,"denoise_low": "Low"
+  ,"denoise_medium": "Medium"
+  ,"denoise_high": "High"
+  ,"filename_suffix": "FILENAME SUFFIX"
+  ,"suffix_placeholder": "No suffix"
+}
