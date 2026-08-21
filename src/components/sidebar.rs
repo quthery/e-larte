@@ -5,7 +5,7 @@ use gpui::{
 use std::path::Path;
 
 use crate::{
-    models,
+    components::model_import,
     state::{DenoiseStrength, ImageScaler, OutputFormat},
     theme::section_label,
 };
@@ -20,7 +20,6 @@ pub(crate) fn render(
     let selected_model_name = selected_model
         .map(|model| model.name.clone())
         .unwrap_or_else(|| state.language.text("no_models").to_string());
-    let choose_models_prompt = state.language.text("choose_models").to_string();
     let output_name = state
         .output_dir
         .as_deref()
@@ -90,83 +89,6 @@ pub(crate) fn render(
                     }))
             }))
     });
-
-    let import_models_button = div()
-        .id("import-models")
-        .flex_none()
-        .mt_2()
-        .w_full()
-        .px_3()
-        .py_1p5()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0x333339))
-        .bg(rgb(0x1b1b1e))
-        .cursor_pointer()
-        .hover(|style| style.bg(rgb(0x202023)).border_color(rgb(0x4d663e)))
-        .drag_over::<gpui::ExternalPaths>(|style, paths, _, _| {
-            if crate::model_storage::has_supported_model(paths.paths()) {
-                style.border_color(rgb(0x789e60)).bg(rgb(0x20271d))
-            } else {
-                style
-            }
-        })
-        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
-            if crate::model_storage::import(paths.paths()).is_ok() {
-                this.models = models::available();
-                this.selected_model = (!this.models.is_empty()).then(|| this.models.len() - 1);
-                this.model_menu_open = false;
-                cx.notify();
-            }
-        }))
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(
-            div()
-                .text_size(px(17.))
-                .text_color(rgb(0x85858f))
-                .child("＋"),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(rgb(0xe1e1e5))
-                        .child(state.language.text("import_models")),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.))
-                        .text_color(rgb(0x85858f))
-                        .child(state.language.text("import_models_hint")),
-                ),
-        )
-        .on_click(cx.listener(move |_, _, _, cx| {
-            let receiver = cx.prompt_for_paths(PathPromptOptions {
-                files: true,
-                directories: false,
-                multiple: true,
-                prompt: Some(choose_models_prompt.clone().into()),
-            });
-            cx.spawn(async move |this, cx| {
-                if let Ok(Ok(Some(paths))) = receiver.await
-                    && crate::model_storage::import(&paths).is_ok()
-                {
-                    let _ = this.update(cx, |this, cx| {
-                        this.models = models::available();
-                        this.selected_model =
-                            (!this.models.is_empty()).then(|| this.models.len() - 1);
-                        this.model_menu_open = false;
-                        cx.notify();
-                    });
-                }
-            })
-            .detach();
-        }));
 
     let has_image = state.image_path.is_some();
     let choose_folder_prompt = state.language.text("choose_folder").to_string();
@@ -245,7 +167,26 @@ pub(crate) fn render(
                 })),
         )
         .children(model_menu)
-        .child(import_models_button)
+        .child(
+            div()
+                .id("open-model-import")
+                .flex_none()
+                .mt_2()
+                .w_full()
+                .py_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x34343b))
+                .text_center()
+                .text_size(px(12.))
+                .text_color(rgb(0xb8b8c1))
+                .cursor_pointer()
+                .hover(|style| style.bg(rgb(0x202025)).border_color(rgb(0x51515b)))
+                .child(state.language.text("import_model"))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    model_import::open(this, window, cx);
+                })),
+        )
         .child(div().h(px(20.)).flex_none())
         .child(section_label(state.language.text("scale")))
         .child(

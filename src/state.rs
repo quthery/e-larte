@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use gpui::{Context, FocusHandle};
+use gpui::{Context, FocusHandle, Pixels, Point, ScrollHandle, point, px};
 
 use crate::{
     localization::Language,
+    models::RemoteModelFile,
     models::{self, Model},
 };
 
@@ -20,6 +21,13 @@ pub(crate) enum DenoiseStrength {
     Low,
     Medium,
     High,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ModelBrowserState {
+    Idle,
+    Loading,
+    Error(String),
 }
 
 pub(crate) struct ImageScaler {
@@ -39,6 +47,19 @@ pub(crate) struct ImageScaler {
     pub(crate) filename_suffix: String,
     pub(crate) suffix_focus: FocusHandle,
     pub(crate) models: Vec<Model>,
+    pub(crate) model_import_open: bool,
+    pub(crate) model_import_offset: Point<Pixels>,
+    pub(crate) model_import_drag_origin: Option<Point<Pixels>>,
+    pub(crate) model_import_drag_start: Point<Pixels>,
+    pub(crate) model_search: String,
+    pub(crate) model_search_focus: FocusHandle,
+    pub(crate) remote_models: Vec<RemoteModelFile>,
+    pub(crate) remote_models_next: Option<String>,
+    pub(crate) remote_models_state: ModelBrowserState,
+    pub(crate) model_search_generation: u64,
+    pub(crate) model_list_scroll: ScrollHandle,
+    pub(crate) downloading_model: Option<String>,
+    pub(crate) model_import_notice: Option<(bool, String)>,
 }
 
 impl ImageScaler {
@@ -61,6 +82,19 @@ impl ImageScaler {
             filename_suffix: "_upscaled".to_string(),
             suffix_focus: cx.focus_handle(),
             models,
+            model_import_open: false,
+            model_import_offset: point(px(0.), px(0.)),
+            model_import_drag_origin: None,
+            model_import_drag_start: point(px(0.), px(0.)),
+            model_search: String::new(),
+            model_search_focus: cx.focus_handle(),
+            remote_models: Vec::new(),
+            remote_models_next: None,
+            remote_models_state: ModelBrowserState::Idle,
+            model_search_generation: 0,
+            model_list_scroll: ScrollHandle::new(),
+            downloading_model: None,
+            model_import_notice: None,
         }
     }
 }

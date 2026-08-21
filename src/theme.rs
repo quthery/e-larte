@@ -5,6 +5,6 @@ pub(crate) fn section_label(text: &'static str) -> impl IntoElement {
         .flex_none()
         .text_size(px(12.))
         .font_weight(gpui::FontWeight::SEMIBOLD)
-        .text_color(rgb(0xaaaab4))
+        .text_color(rgb(0xbcbcc5))
         .child(text)
 }
