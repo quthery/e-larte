@@ -1,10 +1,11 @@
 use gpui::{
-    AnyElement, Context, KeyDownEvent, PathPromptOptions, Window, div, prelude::*, px, rgb,
+    AnyElement, Context, KeyDownEvent, PathPromptOptions, ScrollWheelEvent, Window, div,
+    prelude::*, px, rgb,
 };
 use std::path::Path;
 
 use crate::{
-    models::MODELS,
+    models,
     state::{DenoiseStrength, ImageScaler, OutputFormat},
     theme::section_label,
 };
@@ -14,6 +15,12 @@ pub(crate) fn render(
     window: &mut Window,
     cx: &mut Context<ImageScaler>,
 ) -> AnyElement {
+    let models = &state.models;
+    let selected_model = state.selected_model.and_then(|index| models.get(index));
+    let selected_model_name = selected_model
+        .map(|model| model.name.clone())
+        .unwrap_or_else(|| state.language.text("no_models").to_string());
+    let choose_models_prompt = state.language.text("choose_models").to_string();
     let output_name = state
         .output_dir
         .as_deref()
@@ -35,8 +42,11 @@ pub(crate) fn render(
             .max_h(px(180.))
             .overflow_y_scroll()
             .scrollbar_width(px(4.))
-            .children(MODELS.iter().enumerate().map(|(index, (name, hint))| {
-                let selected = state.selected_model == index;
+            .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| {
+                cx.stop_propagation();
+            }))
+            .children(models.iter().enumerate().map(|(index, model)| {
+                let selected = state.selected_model == Some(index);
                 div()
                     .id(("model-option", index))
                     .w_full()
@@ -56,13 +66,13 @@ pub(crate) fn render(
                                 div()
                                     .text_size(px(13.))
                                     .text_color(rgb(0xf1f1f3))
-                                    .child(*name),
+                                    .child(model.name.clone()),
                             )
                             .child(
                                 div()
                                     .text_size(px(11.))
                                     .text_color(rgb(0x92929c))
-                                    .child(state.language.text(hint)),
+                                    .child(model.file_path.display().to_string()),
                             ),
                     )
                     .when(selected, |el| {
@@ -74,12 +84,89 @@ pub(crate) fn render(
                         )
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.selected_model = index;
+                        this.selected_model = Some(index);
                         this.model_menu_open = false;
                         cx.notify();
                     }))
             }))
     });
+
+    let import_models_button = div()
+        .id("import-models")
+        .flex_none()
+        .mt_2()
+        .w_full()
+        .px_3()
+        .py_1p5()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(0x333339))
+        .bg(rgb(0x1b1b1e))
+        .cursor_pointer()
+        .hover(|style| style.bg(rgb(0x202023)).border_color(rgb(0x4d663e)))
+        .drag_over::<gpui::ExternalPaths>(|style, paths, _, _| {
+            if crate::model_storage::has_supported_model(paths.paths()) {
+                style.border_color(rgb(0x789e60)).bg(rgb(0x20271d))
+            } else {
+                style
+            }
+        })
+        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+            if crate::model_storage::import(paths.paths()).is_ok() {
+                this.models = models::available();
+                this.selected_model = (!this.models.is_empty()).then(|| this.models.len() - 1);
+                this.model_menu_open = false;
+                cx.notify();
+            }
+        }))
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(17.))
+                .text_color(rgb(0x85858f))
+                .child("＋"),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(rgb(0xe1e1e5))
+                        .child(state.language.text("import_models")),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.))
+                        .text_color(rgb(0x85858f))
+                        .child(state.language.text("import_models_hint")),
+                ),
+        )
+        .on_click(cx.listener(move |_, _, _, cx| {
+            let receiver = cx.prompt_for_paths(PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: Some(choose_models_prompt.clone().into()),
+            });
+            cx.spawn(async move |this, cx| {
+                if let Ok(Ok(Some(paths))) = receiver.await
+                    && crate::model_storage::import(&paths).is_ok()
+                {
+                    let _ = this.update(cx, |this, cx| {
+                        this.models = models::available();
+                        this.selected_model =
+                            (!this.models.is_empty()).then(|| this.models.len() - 1);
+                        this.model_menu_open = false;
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }));
 
     let has_image = state.image_path.is_some();
     let choose_folder_prompt = state.language.text("choose_folder").to_string();
@@ -136,21 +223,14 @@ pub(crate) fn render(
                 .justify_between()
                 .child(
                     div()
-                        .flex()
-                        .flex_col()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_size(px(13.))
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .child(MODELS[state.selected_model].0),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(rgb(0x92929c))
-                                .child(state.language.text(MODELS[state.selected_model].1)),
-                        ),
+                        .text_size(px(13.))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(if selected_model.is_none() {
+                            rgb(0x92929c)
+                        } else {
+                            rgb(0xf1f1f3)
+                        })
+                        .child(selected_model_name),
                 )
                 .child(
                     div()
@@ -158,11 +238,14 @@ pub(crate) fn render(
                         .child(if state.model_menu_open { "⌃" } else { "⌄" }),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.model_menu_open = !this.model_menu_open;
-                    cx.notify();
+                    if !this.models.is_empty() {
+                        this.model_menu_open = !this.model_menu_open;
+                        cx.notify();
+                    }
                 })),
         )
         .children(model_menu)
+        .child(import_models_button)
         .child(div().h(px(20.)).flex_none())
         .child(section_label(state.language.text("scale")))
         .child(
@@ -511,6 +594,7 @@ pub(crate) fn render(
         )
         .child(div().h(px(4.)).flex_none());
 
+    let can_upscale = has_image && selected_model.is_some();
     let upscale_button = div()
         .id("upscale-button")
         .flex_none()
@@ -520,17 +604,17 @@ pub(crate) fn render(
         .text_center()
         .font_weight(gpui::FontWeight::BOLD)
         .text_size(px(13.))
-        .bg(if has_image {
+        .bg(if can_upscale {
             rgb(0xa6ff6f)
         } else {
             rgb(0x303036)
         })
-        .text_color(if has_image {
+        .text_color(if can_upscale {
             rgb(0x13200c)
         } else {
             rgb(0x696971)
         })
-        .when(has_image, |element| {
+        .when(can_upscale, |element| {
             element
                 .cursor_pointer()
                 .hover(|style| style.bg(rgb(0xb7ff8a)))
@@ -540,10 +624,12 @@ pub(crate) fn render(
                     cx.notify();
                 }))
         })
-        .child(if has_image {
-            state.language.text("start_upscale")
-        } else {
+        .child(if !has_image {
             state.language.text("add_image_first")
+        } else if selected_model.is_none() {
+            state.language.text("add_model_first")
+        } else {
+            state.language.text("start_upscale")
         });
 
     div()

@@ -134,6 +134,11 @@ fn comparison_layer(position: f32, cx: &mut Context<ImageScaler>) -> AnyElement 
             if !this.comparison_dragging {
                 return;
             }
+            if event.pressed_button != Some(MouseButton::Left) {
+                this.comparison_dragging = false;
+                cx.notify();
+                return;
+            }
 
             let area_width = window.viewport_size().width - px(326.);
             let area_left = if this.sidebar_right {

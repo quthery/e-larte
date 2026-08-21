@@ -14,10 +14,7 @@
   "choose_image": "Выбрать изображение",
   "drop_image": "Перетащите изображение",
   "supported_images": "PNG, JPG или WEBP · до 50 МБ",
-  "model_photo": "Лучший выбор для фото",
-  "model_anime": "Аниме и иллюстрации",
-  "model_details": "Детали и текстуры"
-  ,"output_format": "ФОРМАТ РЕЗУЛЬТАТА"
+  "output_format": "ФОРМАТ РЕЗУЛЬТАТА"
   ,"format_original": "Как есть"
   ,"preserve_metadata": "Сохранить метаданные"
   ,"preserve_metadata_hint": "Сохранить EXIF и данные изображения"
@@ -27,4 +24,10 @@
   ,"denoise_high": "Высокая"
   ,"filename_suffix": "СУФФИКС ИМЕНИ ФАЙЛА"
   ,"suffix_placeholder": "Без суффикса"
+  ,"import_models": "Перетащить или импортировать"
+  ,"import_models_hint": "ONNX, PyTorch, SafeTensors и NCNN"
+  ,"choose_models": "Выбрать файлы моделей"
+  ,"model_imported": "Импортированная модель"
+  ,"no_models": "Импортировать модель"
+  ,"add_model_first": "Сначала импортируйте модель"
 }

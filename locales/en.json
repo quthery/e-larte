@@ -14,10 +14,7 @@
   "choose_image": "Choose image",
   "drop_image": "Drop an image here",
   "supported_images": "PNG, JPG or WEBP · up to 50 MB",
-  "model_photo": "Best choice for photos",
-  "model_anime": "Anime and illustrations",
-  "model_details": "Details and textures"
-  ,"output_format": "OUTPUT FORMAT"
+  "output_format": "OUTPUT FORMAT"
   ,"format_original": "Same"
   ,"preserve_metadata": "Preserve metadata"
   ,"preserve_metadata_hint": "Keep EXIF and image information"
@@ -27,4 +24,10 @@
   ,"denoise_high": "High"
   ,"filename_suffix": "FILENAME SUFFIX"
   ,"suffix_placeholder": "No suffix"
+  ,"import_models": "Drop or import model files"
+  ,"import_models_hint": "ONNX, PyTorch, SafeTensors and NCNN"
+  ,"choose_models": "Choose model files"
+  ,"model_imported": "Imported model"
+  ,"no_models": "Import a model"
+  ,"add_model_first": "Import a model first"
 }

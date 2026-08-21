@@ -1,7 +1,9 @@
 mod app;
 mod components;
 mod image_utils;
+mod inferencing;
 mod localization;
+mod model_storage;
 mod models;
 mod state;
 mod theme;

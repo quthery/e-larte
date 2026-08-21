@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use gpui::{Context, FocusHandle};
 
-use crate::localization::Language;
+use crate::{
+    localization::Language,
+    models::{self, Model},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OutputFormat {
@@ -22,7 +25,7 @@ pub(crate) enum DenoiseStrength {
 pub(crate) struct ImageScaler {
     pub(crate) image_path: Option<PathBuf>,
     pub(crate) output_dir: Option<PathBuf>,
-    pub(crate) selected_model: usize,
+    pub(crate) selected_model: Option<usize>,
     pub(crate) model_menu_open: bool,
     pub(crate) scale: u8,
     pub(crate) sidebar_right: bool,
@@ -35,14 +38,16 @@ pub(crate) struct ImageScaler {
     pub(crate) denoise_strength: DenoiseStrength,
     pub(crate) filename_suffix: String,
     pub(crate) suffix_focus: FocusHandle,
+    pub(crate) models: Vec<Model>,
 }
 
 impl ImageScaler {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+        let models = models::available();
         Self {
             image_path: None,
             output_dir: None,
-            selected_model: 0,
+            selected_model: (!models.is_empty()).then_some(0),
             model_menu_open: false,
             scale: 4,
             sidebar_right: true,
@@ -55,6 +60,7 @@ impl ImageScaler {
             denoise_strength: DenoiseStrength::Medium,
             filename_suffix: "_upscaled".to_string(),
             suffix_focus: cx.focus_handle(),
+            models,
         }
     }
 }
