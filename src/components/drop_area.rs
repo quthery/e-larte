@@ -117,7 +117,7 @@ fn empty_state(state: &ImageScaler) -> AnyElement {
         .child(
             div()
                 .text_size(px(13.))
-                .text_color(rgb(0x92929c))
+                .text_color(rgb(0xa6a6b0))
                 .child(state.language.text("supported_images")),
         )
         .into_any_element()

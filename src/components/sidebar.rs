@@ -4,6 +4,7 @@ use gpui::{
 use std::path::Path;
 
 use crate::{
+    components::model_import,
     models::MODELS,
     state::{DenoiseStrength, ImageScaler, OutputFormat},
     theme::section_label,
@@ -49,19 +50,23 @@ pub(crate) fn render(
                     .justify_between()
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .gap_0p5()
                             .child(
                                 div()
+                                    .text_ellipsis()
                                     .text_size(px(13.))
                                     .text_color(rgb(0xf1f1f3))
                                     .child(*name),
                             )
                             .child(
                                 div()
+                                    .text_ellipsis()
                                     .text_size(px(11.))
-                                    .text_color(rgb(0x92929c))
+                                    .text_color(rgb(0xa6a6b0))
                                     .child(state.language.text(hint)),
                             ),
                     )
@@ -79,6 +84,61 @@ pub(crate) fn render(
                         cx.notify();
                     }))
             }))
+            .children(
+                state
+                    .imported_models
+                    .iter()
+                    .enumerate()
+                    .map(|(index, model)| {
+                        let model_index = MODELS.len() + index;
+                        let selected = state.selected_model == model_index;
+                        div()
+                            .id(("imported-model-option", index))
+                            .w_full()
+                            .px_3()
+                            .py_2()
+                            .cursor_pointer()
+                            .hover(|style| style.bg(rgb(0x2a2a31)))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_ellipsis()
+                                            .text_size(px(13.))
+                                            .text_color(rgb(0xf1f1f3))
+                                            .child(model.name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_ellipsis()
+                                            .text_size(px(11.))
+                                            .text_color(rgb(0xa6a6b0))
+                                            .child(model.path.display().to_string()),
+                                    ),
+                            )
+                            .when(selected, |el| {
+                                el.child(
+                                    div()
+                                        .text_color(rgb(0xa6ff6f))
+                                        .text_size(px(13.))
+                                        .child("✓"),
+                                )
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.selected_model = model_index;
+                                this.model_menu_open = false;
+                                cx.notify();
+                            }))
+                    }),
+            )
     });
 
     let has_image = state.image_path.is_some();
@@ -109,7 +169,7 @@ pub(crate) fn render(
                     div()
                         .mt_1()
                         .text_size(px(12.))
-                        .text_color(rgb(0x92929c))
+                        .text_color(rgb(0xa6a6b0))
                         .child(state.language.text("settings_hint")),
                 ),
         )
@@ -136,25 +196,29 @@ pub(crate) fn render(
                 .justify_between()
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
                         .flex()
                         .flex_col()
                         .gap_0p5()
                         .child(
                             div()
+                                .text_ellipsis()
                                 .text_size(px(13.))
                                 .font_weight(gpui::FontWeight::MEDIUM)
-                                .child(MODELS[state.selected_model].0),
+                                .child(state.selected_model_name()),
                         )
                         .child(
                             div()
+                                .text_ellipsis()
                                 .text_size(px(11.))
-                                .text_color(rgb(0x92929c))
-                                .child(state.language.text(MODELS[state.selected_model].1)),
+                                .text_color(rgb(0xa6a6b0))
+                                .child(state.selected_model_hint()),
                         ),
                 )
                 .child(
                     div()
-                        .text_color(rgb(0x888892))
+                        .text_color(rgb(0xa0a0aa))
                         .child(if state.model_menu_open { "⌃" } else { "⌄" }),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -163,6 +227,26 @@ pub(crate) fn render(
                 })),
         )
         .children(model_menu)
+        .child(
+            div()
+                .id("open-model-import")
+                .flex_none()
+                .mt_2()
+                .w_full()
+                .py_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x34343b))
+                .text_center()
+                .text_size(px(12.))
+                .text_color(rgb(0xb8b8c1))
+                .cursor_pointer()
+                .hover(|style| style.bg(rgb(0x202025)).border_color(rgb(0x51515b)))
+                .child(state.language.text("import_model"))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    model_import::open(this, window, cx);
+                })),
+        )
         .child(div().h(px(20.)).flex_none())
         .child(section_label(state.language.text("scale")))
         .child(
@@ -235,7 +319,7 @@ pub(crate) fn render(
                         .items_center()
                         .gap_1()
                         .text_size(px(11.))
-                        .text_color(rgb(0x92929c))
+                        .text_color(rgb(0xa6a6b0))
                         .child(state.language.text("change"))
                         .child(div().text_size(px(14.)).child("›")),
                 )
@@ -434,7 +518,7 @@ pub(crate) fn render(
                         .child(
                             div()
                                 .text_size(px(11.))
-                                .text_color(rgb(0x92929c))
+                                .text_color(rgb(0xa6a6b0))
                                 .child(state.language.text("preserve_metadata_hint")),
                         ),
                 )
@@ -482,7 +566,7 @@ pub(crate) fn render(
                         .child(
                             div()
                                 .text_size(px(11.))
-                                .text_color(rgb(0x92929c))
+                                .text_color(rgb(0xa6a6b0))
                                 .child(state.language.text("sidebar_right_hint")),
                         ),
                 )
