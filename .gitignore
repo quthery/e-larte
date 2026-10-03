@@ -2,3 +2,6 @@
 .DS_Store
 /tools/runtimes/
 __pycache__/
+
+# Downloaded/exported model weights belong outside Git history.
+*.onnx
