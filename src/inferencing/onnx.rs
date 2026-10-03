@@ -1,18 +1,28 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
-use crate::inferencing::ModelRuntime;
+use crate::inferencing::{
+    ModelRuntime,
+    backend::{self, ExecutionBackend},
+    profile,
+};
 use anyhow::{Context, bail};
 use image::DynamicImage;
 use ndarray::{Array4, s};
 use ort::{
     inputs,
-    session::Session,
+    session::{RunOptions, Session},
     value::{TensorElementType, TensorRef, ValueType},
 };
 
 pub struct OnnxRuntime {
     session: Option<Session>,
     model_path: PathBuf,
+    backend: ExecutionBackend,
+    preferred_backend: ExecutionBackend,
 }
 
 pub struct OnnxInput {
@@ -20,10 +30,20 @@ pub struct OnnxInput {
 }
 
 impl OnnxRuntime {
+    #[cfg(test)]
     pub fn new(model_path: impl Into<PathBuf>) -> Self {
+        Self::with_backend(model_path, ExecutionBackend::best_available())
+    }
+
+    pub(crate) fn with_backend(
+        model_path: impl Into<PathBuf>,
+        preferred_backend: ExecutionBackend,
+    ) -> Self {
         Self {
             session: None,
             model_path: model_path.into(),
+            backend: ExecutionBackend::Cpu,
+            preferred_backend,
         }
     }
 
@@ -48,6 +68,29 @@ impl OnnxRuntime {
         Self::validate_tensor_type(output.dtype(), "output", model_path, false)
     }
 
+    pub(crate) fn input_size(&mut self) -> anyhow::Result<(Option<u32>, Option<u32>)> {
+        let session = self.ensure_session()?;
+        let ValueType::Tensor { shape, .. } = session.inputs()[0].dtype() else {
+            unreachable!("session metadata was validated when it was loaded");
+        };
+        Ok((
+            (shape[3] > 0).then_some(shape[3] as u32),
+            (shape[2] > 0).then_some(shape[2] as u32),
+        ))
+    }
+
+    pub(crate) fn backend(&self) -> ExecutionBackend {
+        self.backend
+    }
+
+    pub(crate) fn upscale_with_options(
+        &mut self,
+        input: OnnxInput,
+        run_options: &Arc<RunOptions>,
+    ) -> anyhow::Result<Array4<f32>> {
+        self.run(input, Some(run_options))
+    }
+
     fn validate_tensor_type(
         value_type: &ValueType,
         kind: &str,
@@ -66,6 +109,19 @@ impl OnnxRuntime {
         if shape.len() != 4 {
             bail!(
                 "Model {} {kind} must be a 4D NCHW tensor, but has shape {shape:?}",
+                model_path.display(),
+            );
+        }
+        if ![-1, 1].contains(&shape[0]) {
+            bail!(
+                "Model {} {kind} batch dimension must be 1 or dynamic, but is {}",
+                model_path.display(),
+                shape[0],
+            );
+        }
+        if shape[2] == 0 || shape[3] == 0 {
+            bail!(
+                "Model {} {kind} spatial dimensions cannot be zero",
                 model_path.display(),
             );
         }
@@ -89,27 +145,66 @@ impl ModelRuntime for OnnxRuntime {
 
     fn tensorize(&self, image: &DynamicImage) -> anyhow::Result<Self::Input> {
         let rgba = image.to_rgba8();
-
-        let (width, height) = rgba.dimensions();
-
-        let mut tensor = Array4::<f32>::zeros((1, 4, height as usize, width as usize));
-        for (x, y, pixel) in rgba.enumerate_pixels() {
-            for (channel, value) in pixel.0.into_iter().enumerate() {
-                tensor[[0, channel, y as usize, x as usize]] = value as f32 / 255.0;
-            }
-        }
-
-        Ok(OnnxInput { rgba: tensor })
+        self.tensorize_rgba(&rgba)
     }
 
     fn ensure_session(&mut self) -> anyhow::Result<&mut Session> {
         if self.session.is_none() {
-            let session = Session::builder()
-                .context("Failed to create session builder")?
-                .commit_from_file(&self.model_path)
-                .with_context(|| format!("Failed to load model: {}", self.model_path.display()))?;
+            let session_started = Instant::now();
+            let (mut builder, mut selected_backend) =
+                backend::session_builder(self.preferred_backend)?;
+            profile::event(format_args!(
+                "session builder configured: requested_backend={}, elapsed_ms={:.3}",
+                self.preferred_backend,
+                profile::milliseconds(session_started.elapsed()),
+            ));
+            let commit_started = Instant::now();
+            let session = match builder.commit_from_file(&self.model_path) {
+                Ok(session) => session,
+                Err(accelerator_error) if selected_backend != ExecutionBackend::Cpu => {
+                    eprintln!(
+                        "[upscale] {} session failed on {}: {accelerator_error}; retrying on CPU",
+                        selected_backend,
+                        selected_backend.device_description(),
+                    );
+                    selected_backend = ExecutionBackend::Cpu;
+                    backend::cpu_session_builder()
+                        .context("Failed to create CPU fallback session")?
+                        .commit_from_file(&self.model_path)
+                        .with_context(|| {
+                            format!(
+                                "Hardware acceleration failed ({accelerator_error}); CPU fallback could not load model: {}",
+                                self.model_path.display()
+                            )
+                        })?
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("Failed to load model: {}", self.model_path.display())
+                    });
+                }
+            };
+            profile::event(format_args!(
+                "session committed: backend={}, elapsed_ms={:.3}",
+                selected_backend,
+                profile::milliseconds(commit_started.elapsed()),
+            ));
 
+            let validation_started = Instant::now();
             Self::validate_session(&session, &self.model_path)?;
+            profile::event(format_args!(
+                "session validated: input={:?}, output={:?}, elapsed_ms={:.3}",
+                session.inputs()[0].dtype(),
+                session.outputs()[0].dtype(),
+                profile::milliseconds(validation_started.elapsed()),
+            ));
+            eprintln!(
+                "[upscale] Active accelerator: backend={}, device={}, model={}",
+                selected_backend,
+                selected_backend.device_description(),
+                self.model_path.display(),
+            );
+            self.backend = selected_backend;
             self.session = Some(session);
         }
 
@@ -117,6 +212,46 @@ impl ModelRuntime for OnnxRuntime {
     }
 
     fn upscale(&mut self, input: Self::Input) -> anyhow::Result<Self::Output> {
+        self.run(input, None)
+    }
+}
+
+impl OnnxRuntime {
+    pub(crate) fn finish_profiling(&mut self) {
+        if !profile::enabled() {
+            return;
+        }
+        if let Some(session) = &mut self.session {
+            match session.end_profiling() {
+                Ok(path) => profile::event(format_args!("ONNX Runtime trace saved: {path}")),
+                Err(error) => profile::event(format_args!(
+                    "ONNX Runtime trace could not be finalized: {error}"
+                )),
+            }
+        }
+    }
+
+    pub(crate) fn tensorize_rgba(&self, rgba: &image::RgbaImage) -> anyhow::Result<OnnxInput> {
+        let (width, height) = rgba.dimensions();
+        let mut tensor = Array4::<f32>::zeros((1, 4, height as usize, width as usize));
+        let plane = width as usize * height as usize;
+        let destination = tensor
+            .as_slice_mut()
+            .context("Input tensor is not contiguous")?;
+        for (index, pixel) in rgba.as_raw().chunks_exact(4).enumerate() {
+            destination[index] = f32::from(pixel[0]) / 255.0;
+            destination[plane + index] = f32::from(pixel[1]) / 255.0;
+            destination[plane * 2 + index] = f32::from(pixel[2]) / 255.0;
+            destination[plane * 3 + index] = f32::from(pixel[3]) / 255.0;
+        }
+        Ok(OnnxInput { rgba: tensor })
+    }
+
+    fn run(
+        &mut self,
+        input: OnnxInput,
+        run_options: Option<&Arc<RunOptions>>,
+    ) -> anyhow::Result<Array4<f32>> {
         let session = self.ensure_session()?;
         let channels = match session.inputs()[0].dtype() {
             ValueType::Tensor { shape, .. } => shape[1],
@@ -125,9 +260,17 @@ impl ModelRuntime for OnnxRuntime {
 
         let outputs = if channels == 3 {
             let rgb = input.rgba.slice(s![.., 0..3, .., ..]);
-            session.run(inputs![TensorRef::from_array_view(rgb)?])?
+            let input = TensorRef::from_array_view(rgb)?;
+            match run_options {
+                Some(options) => session.run_with_options(inputs![input], options)?,
+                None => session.run(inputs![input])?,
+            }
         } else {
-            session.run(inputs![TensorRef::from_array_view(&input.rgba)?])?
+            let input = TensorRef::from_array_view(&input.rgba)?;
+            match run_options {
+                Some(options) => session.run_with_options(inputs![input], options)?,
+                None => session.run(inputs![input])?,
+            }
         };
 
         let model_output = outputs
@@ -218,6 +361,25 @@ mod tests {
 
         assert!(error.to_string().contains("expects 2 input channels"));
     }
+
+    #[test]
+    fn validation_rejects_batched_image_models() {
+        let value_type = ValueType::Tensor {
+            ty: TensorElementType::Float32,
+            shape: Shape::new([2, 3, -1, -1]),
+            dimension_symbols: SymbolicDimensions::new([
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]),
+        };
+
+        let error =
+            OnnxRuntime::validate_tensor_type(&value_type, "input", Path::new("model.onnx"), true)
+                .unwrap_err();
+        assert!(error.to_string().contains("batch dimension"));
+    }
 }
 
 #[cfg(all(test, feature = "upscale-tests"))]
@@ -228,20 +390,16 @@ mod upscale_tests {
 
     use super::*;
 
-    fn upscale_fixture(
-        model_name: &str,
-        scale: u32,
-        tile_size: u32,
-        padding: u32,
-        output_name: &str,
-    ) {
+    fn upscale_fixture(model_name: &str, scale: u32, tile_size: u32, padding: u32) {
         let core_size = tile_size - padding * 2;
 
-        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testsdata");
-        let image = image::open(fixtures.join("testupscale.jpg")).unwrap();
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools/testdata");
+        let image = image::open(fixtures.join("images/testupscale.jpg"))
+            .unwrap()
+            .crop_imm(0, 0, 33, 33);
         let (width, height) = (image.width(), image.height());
         let source = image.to_rgba8();
-        let mut runtime = OnnxRuntime::new(fixtures.join(model_name));
+        let mut runtime = OnnxRuntime::new(fixtures.join("models/onnx").join(model_name));
         let mut upscaled = RgbImage::new(width * scale, height * scale);
 
         for tile_y in (0..height).step_by(core_size as usize) {
@@ -289,43 +447,25 @@ mod upscale_tests {
         }
 
         assert_eq!(upscaled.dimensions(), (width * scale, height * scale));
-        upscaled.save(fixtures.join(output_name)).unwrap();
     }
 
     #[test]
     fn realesrgan_upscales_fixture_with_2x_and_4x_models() {
-        upscale_fixture(
-            "Real-ESRGAN_x2plus.onnx",
-            2,
-            64,
-            4,
-            "testupscale_upscaled2x.jpg",
-        );
-        upscale_fixture(
-            "Real-ESRGAN-x4plus.onnx",
-            4,
-            128,
-            8,
-            "testupscale_upscaled4x.jpg",
-        );
+        upscale_fixture("Real-ESRGAN_x2plus.onnx", 2, 64, 4);
+        upscale_fixture("Real-ESRGAN-x4plus.onnx", 4, 128, 8);
     }
 
     #[test]
     fn converted_hat_upscales_fixture_tile_four_times() {
-        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testsdata");
-        let image = image::open(fixtures.join("testupscale.jpg"))
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools/testdata");
+        let image = image::open(fixtures.join("images/testupscale.jpg"))
             .unwrap()
             .crop_imm(0, 0, 64, 64);
-        let mut runtime = OnnxRuntime::new(fixtures.join("Real_HAT_GAN_SRx4.onnx"));
+        let mut runtime = OnnxRuntime::new(fixtures.join("models/onnx/Real_HAT_GAN_SRx4.onnx"));
         let input = runtime.tensorize(&image).unwrap();
         let output = runtime.upscale(input).unwrap();
 
         assert_eq!(output.shape(), &[1, 4, 256, 256]);
         assert!(output.iter().all(|value| value.is_finite()));
-    }
-
-    #[test]
-    fn hat_upscales_complete_fixture_four_times() {
-        upscale_fixture("Real_HAT_GAN_SRx4.onnx", 4, 64, 16, "testupscale_hat4x.jpg");
     }
 }

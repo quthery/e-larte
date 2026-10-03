@@ -5257,6 +5257,7 @@ name = "super-puper-image-scaler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel 2.5.0",
  "directories",
  "gpui",
  "image",
@@ -5266,6 +5267,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys-locale",
+ "tempfile",
  "ureq",
 ]
 

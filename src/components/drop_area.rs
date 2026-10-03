@@ -10,12 +10,14 @@ pub(crate) fn render(
     _window: &mut Window,
     cx: &mut Context<ImageScaler>,
 ) -> AnyElement {
+    let scaler = cx.weak_entity();
     let image_content = match &state.image_path {
         Some(path) => img(path.clone()).size_full().into_any_element(),
         None => empty_state(state),
     };
     let has_image = state.image_path.is_some();
     let choose_image_prompt = state.language.text("choose_image").to_string();
+    let replace_image_prompt = choose_image_prompt.clone();
 
     div()
         .flex_1()
@@ -24,6 +26,11 @@ pub(crate) fn render(
         .flex()
         .flex_col()
         .gap_4()
+        .on_children_prepainted(move |bounds, _, cx| {
+            if let Some(bounds) = bounds.first().copied() {
+                let _ = scaler.update(cx, |state, _| state.comparison_bounds = Some(bounds));
+            }
+        })
         .child(
             div()
                 .id("image-drop-area")
@@ -35,23 +42,22 @@ pub(crate) fn render(
                 .border_1()
                 .border_color(rgb(0x34343b))
                 .bg(rgb(0x18181b))
+                .drag_over::<ExternalPaths>(|style, paths, _, _| {
+                    if paths.paths().iter().any(|path| is_image(path)) {
+                        style.border_color(rgb(0xa6ff6f)).bg(rgb(0x1d211b))
+                    } else {
+                        style
+                    }
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    if let Some(path) = paths.paths().iter().find(|path| is_image(path)) {
+                        this.set_image(path.clone());
+                        cx.notify();
+                    }
+                }))
                 .when(!has_image, |area| {
                     area.cursor_pointer()
                         .hover(|style| style.border_color(rgb(0x6d904f)).bg(rgb(0x1b1d1a)))
-                        .drag_over::<ExternalPaths>(|style, paths, _, _| {
-                            if paths.paths().iter().any(|path| is_image(path)) {
-                                style.border_color(rgb(0xa6ff6f)).bg(rgb(0x1d211b))
-                            } else {
-                                style
-                            }
-                        })
-                        .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                            if let Some(path) = paths.paths().iter().find(|path| is_image(path)) {
-                                this.image_path = Some(path.clone());
-                                this.comparison_ready = false;
-                                cx.notify();
-                            }
-                        }))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             let receiver = cx.prompt_for_paths(PathPromptOptions {
                                 files: true,
@@ -65,8 +71,7 @@ pub(crate) fn render(
                                         paths.into_iter().find(|path| is_image(path))
                                 {
                                     let _ = this.update(cx, |this, cx| {
-                                        this.image_path = Some(path);
-                                        this.comparison_ready = false;
+                                        this.set_image(path);
                                         cx.notify();
                                     });
                                 }
@@ -75,8 +80,60 @@ pub(crate) fn render(
                         }))
                 })
                 .child(image_content)
-                .when(has_image && state.comparison_ready, |area| {
-                    area.child(comparison_layer(state.comparison_position, cx))
+                .when_some(
+                    state
+                        .image_path
+                        .as_ref()
+                        .zip(state.upscaled_image_path.as_ref())
+                        .filter(|_| state.comparison_ready),
+                    |area, (original, upscaled)| {
+                        area.child(comparison_layer(
+                            original.clone(),
+                            upscaled.clone(),
+                            state.comparison_position,
+                            cx,
+                        ))
+                    },
+                )
+                .when(has_image, |area| {
+                    area.child(
+                        div()
+                            .id("replace-image")
+                            .absolute()
+                            .top_3()
+                            .right_3()
+                            .px_3()
+                            .py_1p5()
+                            .rounded_md()
+                            .bg(gpui::rgba(0x171719dd))
+                            .border_1()
+                            .border_color(rgb(0x46464f))
+                            .cursor_pointer()
+                            .text_size(px(11.))
+                            .text_color(rgb(0xe0e0e5))
+                            .child(state.language.text("replace_image"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.stop_propagation();
+                                let receiver = cx.prompt_for_paths(PathPromptOptions {
+                                    files: true,
+                                    directories: false,
+                                    multiple: false,
+                                    prompt: Some(replace_image_prompt.clone().into()),
+                                });
+                                cx.spawn(async move |this, cx| {
+                                    if let Ok(Ok(Some(paths))) = receiver.await
+                                        && let Some(path) =
+                                            paths.into_iter().find(|path| is_image(path))
+                                    {
+                                        let _ = this.update(cx, |this, cx| {
+                                            this.set_image(path);
+                                            cx.notify();
+                                        });
+                                    }
+                                })
+                                .detach();
+                            })),
+                    )
                 }),
         )
         .into_any_element()
@@ -123,14 +180,21 @@ fn empty_state(state: &ImageScaler) -> AnyElement {
         .into_any_element()
 }
 
-fn comparison_layer(position: f32, cx: &mut Context<ImageScaler>) -> AnyElement {
+fn comparison_layer(
+    original: std::path::PathBuf,
+    upscaled: std::path::PathBuf,
+    position: f32,
+    cx: &mut Context<ImageScaler>,
+) -> AnyElement {
+    let position = position.clamp(0.001, 0.999);
+
     div()
         .id("comparison-layer")
         .absolute()
         .top_0()
         .left_0()
         .size_full()
-        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
             if !this.comparison_dragging {
                 return;
             }
@@ -140,13 +204,11 @@ fn comparison_layer(position: f32, cx: &mut Context<ImageScaler>) -> AnyElement 
                 return;
             }
 
-            let area_width = window.viewport_size().width - px(326.);
-            let area_left = if this.sidebar_right {
-                px(20.)
-            } else {
-                px(306.)
+            let Some(bounds) = this.comparison_bounds else {
+                return;
             };
-            this.comparison_position = ((event.position.x - area_left) / area_width).clamp(0., 1.);
+            this.comparison_position =
+                ((event.position.x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
             cx.notify();
         }))
         .on_mouse_up(
@@ -160,6 +222,40 @@ fn comparison_layer(position: f32, cx: &mut Context<ImageScaler>) -> AnyElement 
             cx.listener(|this, _, _, _| {
                 this.comparison_dragging = false;
             }),
+        )
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .h_full()
+                .w(relative(position))
+                .overflow_hidden()
+                .child(
+                    img(original)
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .h_full()
+                        .w(relative(1.0 / position)),
+                ),
+        )
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .h_full()
+                .w(relative(1.0 - position))
+                .overflow_hidden()
+                .child(
+                    img(upscaled)
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .h_full()
+                        .w(relative(1.0 / (1.0 - position))),
+                ),
         )
         .child(comparison_slider(position, cx))
         .into_any_element()

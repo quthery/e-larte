@@ -2,26 +2,29 @@
   "settings": "Настройки",
   "settings_hint": "Подготовьте изображение к апскейлу",
   "upscale_model": "МОДЕЛЬ АПСКЕЙЛА",
-  "scale": "МАСШТАБ",
+  "model_output": "РЕЗУЛЬТАТ МОДЕЛИ",
+  "model_output_hint": "Масштаб и движок определятся во время апскейла",
   "save_to": "СОХРАНИТЬ В",
   "next_to_original": "Рядом с оригиналом",
   "change": "Изменить",
   "choose_folder": "Выбрать папку",
   "sidebar_right": "Сайдбар справа",
   "sidebar_right_hint": "Перемещает сайдбар вправо",
+  "inference_backend": "ДВИЖОК ИНФЕРЕНСА",
+  "ncnn_backend_hint": "Vulkan · оптимизированный нативный движок",
+  "onnx_backend_hint": "Автоматическое аппаратное ускорение",
   "start_upscale": "Начать апскейл  →",
+  "upscaling": "Выполняем апскейл...",
+  "cancel": "Отменить",
   "add_image_first": "Сначала добавьте изображение",
   "choose_image": "Выбрать изображение",
+  "replace_image": "Заменить изображение",
   "drop_image": "Перетащите изображение",
-  "supported_images": "PNG, JPG или WEBP · до 50 МБ",
+  "supported_images": "PNG, JPG, WEBP или BMP · до 50 МБ",
   "output_format": "ФОРМАТ РЕЗУЛЬТАТА"
   ,"format_original": "Как есть"
   ,"preserve_metadata": "Сохранить метаданные"
-  ,"preserve_metadata_hint": "Сохранить EXIF и данные изображения"
-  ,"denoise_strength": "СИЛА ШУМОПОДАВЛЕНИЯ"
-  ,"denoise_low": "Низкая"
-  ,"denoise_medium": "Средняя"
-  ,"denoise_high": "Высокая"
+  ,"preserve_metadata_hint": "Сохранить поддерживаемые EXIF и ICC"
   ,"filename_suffix": "СУФФИКС ИМЕНИ ФАЙЛА"
   ,"suffix_placeholder": "Без суффикса"
   ,"import_model": "Импортировать модель"
@@ -43,6 +46,7 @@
   ,"no_models": "Импортировать модель"
   ,"add_model_first": "Сначала импортируйте модель"
   ,"model_imported": "Модель добавлена и выбрана"
+  ,"importing_model": "Импортируем модель..."
   ,"models_imported": "Модели добавлены, выбрана последняя"
   ,"invalid_model": "Выберите файл поддерживаемой модели"
   ,"download_failed": "Не удалось скачать модель"

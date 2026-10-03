@@ -3,8 +3,10 @@ mod components;
 mod image_utils;
 mod inferencing;
 mod localization;
+mod model_hub;
 mod model_storage;
 mod models;
+mod preferences;
 mod state;
 mod theme;
 
@@ -15,6 +17,7 @@ use gpui::{
 use state::ImageScaler;
 
 fn main() {
+    inferencing::configure_diagnostics();
     Application::new().run(|cx: &mut App| {
         let bounds = Bounds::new(point(px(100.0), px(100.0)), size(px(920.0), px(640.0)));
         cx.activate(true);

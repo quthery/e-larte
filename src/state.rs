@@ -1,27 +1,14 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-use gpui::{Context, FocusHandle, Pixels, Point, ScrollHandle, point, px};
+use gpui::{Bounds, Context, FocusHandle, Pixels, Point, ScrollHandle, point, px};
 
 use crate::{
+    inferencing::{Cancellation, InferenceEngine, OutputFormat},
     localization::Language,
     models::RemoteModelFile,
     models::{self, Model},
+    preferences::Preferences,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OutputFormat {
-    Original,
-    Png,
-    Jpeg,
-    Webp,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DenoiseStrength {
-    Low,
-    Medium,
-    High,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) enum ModelBrowserState {
@@ -30,21 +17,38 @@ pub(crate) enum ModelBrowserState {
     Error(String),
 }
 
+pub(crate) enum UpscaleState {
+    Idle,
+    Running {
+        job_id: u64,
+        progress: u8,
+        elapsed_millis: u64,
+        cancellation: Arc<Cancellation>,
+    },
+    Error(String),
+}
+
 pub(crate) struct ImageScaler {
     pub(crate) image_path: Option<PathBuf>,
     pub(crate) output_dir: Option<PathBuf>,
     pub(crate) selected_model: Option<usize>,
     pub(crate) model_menu_open: bool,
-    pub(crate) scale: u8,
     pub(crate) sidebar_right: bool,
     pub(crate) comparison_position: f32,
+    pub(crate) comparison_bounds: Option<Bounds<Pixels>>,
     pub(crate) comparison_dragging: bool,
     pub(crate) comparison_ready: bool,
+    pub(crate) upscaled_image_path: Option<PathBuf>,
+    pub(crate) upscale_state: UpscaleState,
     pub(crate) language: Language,
     pub(crate) output_format: OutputFormat,
     pub(crate) preserve_metadata: bool,
-    pub(crate) denoise_strength: DenoiseStrength,
     pub(crate) filename_suffix: String,
+    pub(crate) detected_scale: Option<u32>,
+    pub(crate) execution_engine: Option<InferenceEngine>,
+    pub(crate) selected_engine: InferenceEngine,
+    pub(crate) backend_menu_open: bool,
+    pub(crate) next_job_id: u64,
     pub(crate) suffix_focus: FocusHandle,
     pub(crate) models: Vec<Model>,
     pub(crate) model_import_open: bool,
@@ -65,21 +69,36 @@ pub(crate) struct ImageScaler {
 impl ImageScaler {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
         let models = models::available();
+        let preferences = Preferences::load();
+        let selected_model = (!models.is_empty()).then_some(0);
+        let available_engines =
+            InferenceEngine::available_for(selected_model.and_then(|index| models.get(index)));
+        let selected_engine = preferences
+            .inference_engine
+            .filter(|engine| available_engines.contains(engine))
+            .or_else(|| available_engines.first().copied())
+            .unwrap_or(InferenceEngine::Onnx);
         Self {
             image_path: None,
-            output_dir: None,
-            selected_model: (!models.is_empty()).then_some(0),
+            output_dir: preferences.output_dir,
+            selected_model,
             model_menu_open: false,
-            scale: 4,
-            sidebar_right: true,
+            sidebar_right: preferences.sidebar_right,
             comparison_position: 0.5,
+            comparison_bounds: None,
             comparison_dragging: false,
             comparison_ready: false,
+            upscaled_image_path: None,
+            upscale_state: UpscaleState::Idle,
             language: Language::system(),
-            output_format: OutputFormat::Original,
-            preserve_metadata: true,
-            denoise_strength: DenoiseStrength::Medium,
-            filename_suffix: "_upscaled".to_string(),
+            output_format: preferences.output_format,
+            preserve_metadata: preferences.preserve_metadata,
+            filename_suffix: preferences.filename_suffix,
+            detected_scale: None,
+            execution_engine: None,
+            selected_engine,
+            backend_menu_open: false,
+            next_job_id: 1,
             suffix_focus: cx.focus_handle(),
             models,
             model_import_open: false,
@@ -96,5 +115,55 @@ impl ImageScaler {
             downloading_model: None,
             model_import_notice: None,
         }
+    }
+
+    pub(crate) fn save_preferences(&self) {
+        let preferences = Preferences {
+            output_dir: self.output_dir.clone(),
+            output_format: self.output_format,
+            preserve_metadata: self.preserve_metadata,
+            filename_suffix: self.filename_suffix.clone(),
+            sidebar_right: self.sidebar_right,
+            inference_engine: Some(self.selected_engine),
+        };
+        if let Err(error) = preferences.save() {
+            eprintln!("Failed to save preferences: {error:#}");
+        }
+    }
+
+    pub(crate) fn cancel_active_job(&mut self) {
+        if let UpscaleState::Running { cancellation, .. } = &self.upscale_state {
+            cancellation.cancel();
+        }
+        self.upscale_state = UpscaleState::Idle;
+    }
+
+    pub(crate) fn available_engines(&self) -> Vec<InferenceEngine> {
+        InferenceEngine::available_for(self.selected_model.and_then(|index| self.models.get(index)))
+    }
+
+    pub(crate) fn select_model(&mut self, index: usize) {
+        self.cancel_active_job();
+        self.selected_model = Some(index);
+        let available = self.available_engines();
+        if !available.contains(&self.selected_engine)
+            && let Some(engine) = available.first()
+        {
+            self.selected_engine = *engine;
+            self.save_preferences();
+        }
+        self.upscaled_image_path = None;
+        self.comparison_ready = false;
+        self.detected_scale = None;
+        self.execution_engine = None;
+    }
+
+    pub(crate) fn set_image(&mut self, path: PathBuf) {
+        self.cancel_active_job();
+        self.image_path = Some(path);
+        self.upscaled_image_path = None;
+        self.comparison_ready = false;
+        self.detected_scale = None;
+        self.execution_engine = None;
     }
 }

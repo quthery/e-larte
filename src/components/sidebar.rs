@@ -1,13 +1,12 @@
+use crate::{
+    components::{backend_picker, model_import, upscale_job},
+    inferencing::OutputFormat,
+    state::ImageScaler,
+    theme::section_label,
+};
 use gpui::{
     AnyElement, Context, KeyDownEvent, PathPromptOptions, ScrollWheelEvent, Window, div,
     prelude::*, px, rgb,
-};
-use std::path::Path;
-
-use crate::{
-    components::model_import,
-    state::{DenoiseStrength, ImageScaler, OutputFormat},
-    theme::section_label,
 };
 
 pub(crate) fn render(
@@ -20,13 +19,15 @@ pub(crate) fn render(
     let selected_model_name = selected_model
         .map(|model| model.name.clone())
         .unwrap_or_else(|| state.language.text("no_models").to_string());
-    let output_name = state
-        .output_dir
-        .as_deref()
-        .and_then(Path::file_name)
-        .and_then(|name| name.to_str())
-        .unwrap_or(state.language.text("next_to_original"))
-        .to_string();
+    let output_name = state.output_dir.as_deref().map_or_else(
+        || state.language.text("next_to_original").to_string(),
+        |path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| path.display().to_string())
+        },
+    );
 
     let model_menu = state.model_menu_open.then(|| {
         div()
@@ -83,14 +84,13 @@ pub(crate) fn render(
                         )
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.selected_model = Some(index);
+                        this.select_model(index);
                         this.model_menu_open = false;
                         cx.notify();
                     }))
             }))
     });
 
-    let has_image = state.image_path.is_some();
     let choose_folder_prompt = state.language.text("choose_folder").to_string();
 
     let settings_content = div()
@@ -161,6 +161,7 @@ pub(crate) fn render(
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
                     if !this.models.is_empty() {
+                        this.backend_menu_open = false;
                         this.model_menu_open = !this.model_menu_open;
                         cx.notify();
                     }
@@ -188,43 +189,21 @@ pub(crate) fn render(
                 })),
         )
         .child(div().h(px(20.)).flex_none())
-        .child(section_label(state.language.text("scale")))
+        .child(section_label(state.language.text("model_output")))
         .child(
             div()
                 .flex_none()
                 .mt_2()
-                .p_1()
+                .px_3()
+                .py_2()
                 .rounded_lg()
                 .bg(rgb(0x202025))
-                .flex()
-                .gap_1()
-                .children([2u8, 4u8].into_iter().map(|scale| {
-                    let selected = state.scale == scale;
-                    div()
-                        .id(("scale", scale as usize))
-                        .flex_1()
-                        .py_1()
-                        .rounded_md()
-                        .cursor_pointer()
-                        .text_center()
-                        .text_size(px(13.))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .bg(if selected {
-                            rgb(0x34343b)
-                        } else {
-                            rgb(0x202025)
-                        })
-                        .text_color(if selected {
-                            rgb(0xa6ff6f)
-                        } else {
-                            rgb(0x85858f)
-                        })
-                        .child(format!("{}×", scale))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.scale = scale;
-                            cx.notify();
-                        }))
-                })),
+                .text_size(px(12.))
+                .text_color(rgb(0xb8b8c1))
+                .child(match (state.detected_scale, state.execution_engine) {
+                    (Some(scale), Some(engine)) => format!("{scale}× · {engine}"),
+                    _ => state.language.text("model_output_hint").to_string(),
+                }),
         )
         .child(div().h(px(20.)).flex_none())
         .child(section_label(state.language.text("save_to")))
@@ -263,6 +242,23 @@ pub(crate) fn render(
                         .child(state.language.text("change"))
                         .child(div().text_size(px(14.)).child("›")),
                 )
+                .when(state.output_dir.is_some(), |element| {
+                    element.child(
+                        div()
+                            .id("reset-output-folder")
+                            .px_1()
+                            .cursor_pointer()
+                            .text_size(px(15.))
+                            .text_color(rgb(0x92929c))
+                            .child("×")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.output_dir = None;
+                                this.save_preferences();
+                                cx.notify();
+                            })),
+                    )
+                })
                 .on_click(cx.listener(move |_, _, _, cx| {
                     let receiver = cx.prompt_for_paths(PathPromptOptions {
                         files: false,
@@ -276,6 +272,7 @@ pub(crate) fn render(
                         {
                             let _ = this.update(cx, |this, cx| {
                                 this.output_dir = Some(path);
+                                this.save_preferences();
                                 cx.notify();
                             });
                         }
@@ -330,57 +327,7 @@ pub(crate) fn render(
                             .child(label)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.output_format = format;
-                                cx.notify();
-                            }))
-                    }),
-                ),
-        )
-        .child(div().h(px(20.)).flex_none())
-        .child(section_label(state.language.text("denoise_strength")))
-        .child(
-            div()
-                .flex_none()
-                .mt_2()
-                .p_1()
-                .rounded_lg()
-                .bg(rgb(0x202025))
-                .flex()
-                .gap_1()
-                .children(
-                    [
-                        (DenoiseStrength::Low, state.language.text("denoise_low")),
-                        (
-                            DenoiseStrength::Medium,
-                            state.language.text("denoise_medium"),
-                        ),
-                        (DenoiseStrength::High, state.language.text("denoise_high")),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, (strength, label))| {
-                        let selected = state.denoise_strength == strength;
-                        div()
-                            .id(("denoise", index))
-                            .flex_1()
-                            .py_1p5()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .text_center()
-                            .text_size(px(11.))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .bg(if selected {
-                                rgb(0x34343b)
-                            } else {
-                                rgb(0x202025)
-                            })
-                            .text_color(if selected {
-                                rgb(0xa6ff6f)
-                            } else {
-                                rgb(0x85858f)
-                            })
-                            .child(label)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.denoise_strength = strength;
+                                this.save_preferences();
                                 cx.notify();
                             }))
                     }),
@@ -434,6 +381,7 @@ pub(crate) fn render(
                                 )
                             }));
                     }
+                    this.save_preferences();
                     cx.notify();
                 })),
         )
@@ -481,6 +429,7 @@ pub(crate) fn render(
                         .child(div().size(px(16.)).rounded_full().bg(rgb(0xf2f2f2)))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.preserve_metadata = !this.preserve_metadata;
+                            this.save_preferences();
                             cx.notify();
                         })),
                 ),
@@ -529,49 +478,14 @@ pub(crate) fn render(
                         .child(div().size(px(16.)).rounded_full().bg(rgb(0xf2f2f2)))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.sidebar_right = !this.sidebar_right;
+                            this.save_preferences();
                             cx.notify();
                         })),
                 ),
         )
+        .child(div().h(px(20.)).flex_none())
+        .child(backend_picker::render(state, cx))
         .child(div().h(px(4.)).flex_none());
-
-    let can_upscale = has_image && selected_model.is_some();
-    let upscale_button = div()
-        .id("upscale-button")
-        .flex_none()
-        .w_full()
-        .py_3()
-        .rounded_lg()
-        .text_center()
-        .font_weight(gpui::FontWeight::BOLD)
-        .text_size(px(13.))
-        .bg(if can_upscale {
-            rgb(0xa6ff6f)
-        } else {
-            rgb(0x303036)
-        })
-        .text_color(if can_upscale {
-            rgb(0x13200c)
-        } else {
-            rgb(0x696971)
-        })
-        .when(can_upscale, |element| {
-            element
-                .cursor_pointer()
-                .hover(|style| style.bg(rgb(0xb7ff8a)))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.comparison_ready = true;
-                    this.comparison_position = 0.5;
-                    cx.notify();
-                }))
-        })
-        .child(if !has_image {
-            state.language.text("add_image_first")
-        } else if selected_model.is_none() {
-            state.language.text("add_model_first")
-        } else {
-            state.language.text("start_upscale")
-        });
 
     div()
         .id("settings-sidebar")
@@ -585,14 +499,6 @@ pub(crate) fn render(
         .flex()
         .flex_col()
         .child(settings_content)
-        .child(
-            div()
-                .flex_none()
-                .px_4()
-                .pt_2()
-                .pb_4()
-                .bg(rgb(0x171719))
-                .child(upscale_button),
-        )
+        .child(upscale_job::render(state, cx))
         .into_any_element()
 }

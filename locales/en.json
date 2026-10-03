@@ -2,26 +2,29 @@
   "settings": "Settings",
   "settings_hint": "Prepare an image for upscaling",
   "upscale_model": "UPSCALING MODEL",
-  "scale": "SCALE",
+  "model_output": "MODEL OUTPUT",
+  "model_output_hint": "Scale and backend are detected during upscaling",
   "save_to": "SAVE TO",
   "next_to_original": "Next to original",
   "change": "Change",
   "choose_folder": "Choose folder",
   "sidebar_right": "Sidebar on the right",
   "sidebar_right_hint": "Moves the sidebar to the right",
+  "inference_backend": "INFERENCE BACKEND",
+  "ncnn_backend_hint": "Vulkan · optimized native runtime",
+  "onnx_backend_hint": "Automatic hardware acceleration",
   "start_upscale": "Start upscaling  →",
+  "upscaling": "Upscaling...",
+  "cancel": "Cancel",
   "add_image_first": "Add an image first",
   "choose_image": "Choose image",
+  "replace_image": "Replace image",
   "drop_image": "Drop an image here",
-  "supported_images": "PNG, JPG or WEBP · up to 50 MB",
+  "supported_images": "PNG, JPG, WEBP or BMP · up to 50 MB",
   "output_format": "OUTPUT FORMAT"
   ,"format_original": "Same"
   ,"preserve_metadata": "Preserve metadata"
-  ,"preserve_metadata_hint": "Keep EXIF and image information"
-  ,"denoise_strength": "DENOISE STRENGTH"
-  ,"denoise_low": "Low"
-  ,"denoise_medium": "Medium"
-  ,"denoise_high": "High"
+  ,"preserve_metadata_hint": "Keep supported EXIF and ICC data"
   ,"filename_suffix": "FILENAME SUFFIX"
   ,"suffix_placeholder": "No suffix"
   ,"import_model": "Import model"
@@ -43,6 +46,7 @@
   ,"no_models": "Import a model"
   ,"add_model_first": "Import a model first"
   ,"model_imported": "Model added and selected"
+  ,"importing_model": "Importing model..."
   ,"models_imported": "Models added and the last one selected"
   ,"invalid_model": "Choose a supported model file"
   ,"download_failed": "Download failed"

@@ -55,16 +55,10 @@ pub(crate) fn import(paths: &[PathBuf]) -> Result<usize, String> {
     Ok(imported)
 }
 
-fn is_supported(path: &Path) -> bool {
+pub(crate) fn is_supported(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(SUPPORTED_EXTENSION))
-}
-
-pub(crate) fn has_supported_model(paths: &[PathBuf]) -> bool {
-    paths
-        .iter()
-        .any(|path| path.is_file() && is_supported(path))
 }
 
 fn unique_destination(directory: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
